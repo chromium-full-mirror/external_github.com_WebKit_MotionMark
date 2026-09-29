@@ -74,17 +74,19 @@ class StackLayout extends ItemLayout {
     
     arrangeItems()
     {
-        const numItems = this._container.children.length;
-        const offset = new Size(this._maxOffset.width / numItems, this._maxOffset.height / numItems);
+        const numUnits = this._container.children.length;
+        if (!numUnits)
+            return;
+        const offset = new Size(this._maxOffset.width / numUnits, this._maxOffset.height / numUnits);
         const minAlpha = 0.2;
-        const maxAlpha = 1;
+        const maxAlpha = 0.9;
 
         for (let i = 0; i < this._container.children.length; ++i) {
             const child = this._container.children[i];
             child.style.left = `${i * offset.width}px`;
             child.style.top = `${i * offset.height}px`;
             
-            child.style.setProperty("--fade-level", Utilities.lerp((i + 1) / numItems, minAlpha, maxAlpha));
+            child.style.setProperty("--fade-level", Utilities.lerp((i + 1) / numUnits, minAlpha, maxAlpha));
         }
     }
     
@@ -93,45 +95,46 @@ class StackLayout extends ItemLayout {
 /* ------------------------------------------------------------ */
 
 class Item {
-    constructor(container)
+    static TEXT_VALUES = [
+        'Zoom',
+        'Static',
+        'Open',
+        'Water',
+        'Neon',
+        'Lights'
+    ];
+
+    constructor(container, index)
     {
-        this.#createElements(container);
+        this.#createElements(container, index);
     }
     
     remove()
     {
-        this.section.remove();
+        const section = this.item.parentElement;
+        this.item.remove();
+        if (section && section.children.length === 0)
+            section.remove();
     }
     
-    #createElements(container)
+    #createElements(container, index)
     {
-        this.section = this.#createElement('section', 'unit');
-        
-        const textValues = [
-            'Zoom',
-            'Static',
-            'Open',
-            'Water',
-            'Neon',
-            'Lights'
-        ];
-
-        // Create six items, one of each type.
-        const numItems = 6;
-        for (let i = 0; i < numItems; ++i) {
-
-            const item = this.#createElement('div', 'item');
-            item.classList.add(`style-${i + 1}`)
-            this.section.appendChild(item);
-
-            const wrapper = this.#createElement('div', 'container');
-            item.appendChild(wrapper);
-
-            const content = this.#createElement('div', 'content', textValues[i]);
-            wrapper.appendChild(content);
+        const styleIndex = index % Item.TEXT_VALUES.length;
+        let section = container.lastElementChild;
+        if (!section || section.children.length >= Item.TEXT_VALUES.length) {
+            section = this.#createElement('section', 'unit');
+            container.appendChild(section);
         }
 
-        container.appendChild(this.section);
+        this.item = this.#createElement('div', 'item');
+        this.item.classList.add(`style-${styleIndex + 1}`);
+        section.appendChild(this.item);
+
+        const wrapper = this.#createElement('div', 'container');
+        this.item.appendChild(wrapper);
+
+        const content = this.#createElement('div', 'content', Item.TEXT_VALUES[styleIndex]);
+        wrapper.appendChild(content);
     }
 
     #createElement(tagName, className, htmlContent)
@@ -185,7 +188,7 @@ class FilteringStage extends Stage {
         } else if (newComplexity > this._complexity) {
             
             for (let itemCount = this._complexity; itemCount < newComplexity; ++itemCount) {
-                const item = new Item(this.container);
+                const item = new Item(this.container, itemCount);
                 this._items.push(item);
             }
         }
