@@ -24,170 +24,10 @@
  */
 
 
-class RandomAccessSet extends Set {
-    random()
-    {
-        const index = Stage.randomInt(0, this.size - 1);
-        return [...this][index];
-    }
-}
-
-class GridPosition {
-    constructor(x, y)
-    {
-        this.x = x;
-        this.y = y;
-    }
-}
-
-class TreeNode {
-    constructor(parentNode, position)
-    {
-        this.parentNode = parentNode;
-        this.position = position;
-    }
-
-    setGridPositionForIndex(index)
-    {
-        switch (index) {
-        case 0:
-            this.position = new GridPosition(0, 0);
-            break;
-        case 1:
-            this.position = new GridPosition(1, 0);
-            break;
-        case 2:
-            this.position = new GridPosition(0, 1);
-            break;
-        case 3:
-            this.position = new GridPosition(1, 1);
-            break;
-        }
-    }    
-}
-
-// A non-leaf node. This always has 4 children, either other nodes, or leaves (possibly mixed).
-class ContainerNode extends TreeNode {
-    constructor(parentNode, depth)
-    {
-        super(parentNode);
-        
-        this.depth = depth;
-        this.children = new Array(FractalLayoutController.MAX_CHILDREN_PER_NODE);
-    }
-    
-    addChildInRandomEmptySlot(node)
-    {
-        const index = this.#findRandomEmptyChildIndex();
-        if (index === -1)
-            return false;
-
-        node.parentNode = this;
-        this.children[index] = node;
-        node.setGridPositionForIndex(index);
-        return true;
-    }
-    
-    setChildAtIndex(index, node)
-    {
-        node.parentNode = this;
-        this.children[index] = node;
-        node.setGridPositionForIndex(index);
-    }
-
-    removeChildNode(node)
-    {
-        const index = this.children.indexOf(node);
-        if (index === -1)
-            throw new TypeError('Tried to remove a node which is not a child');
-
-        this.removeChildAtIndex(index);
-    }
-    
-    removeChildAtIndex(index)
-    {
-        const childNode = this.children[index];
-        childNode.parentNode = null;
-        delete this.children[index];
-    }
-    
-    get childCount()
-    {
-        return this.children.reduce(c => c + 1, 0);
-    }
-    
-    get containerChildren()
-    {
-        const children = [];
-        this.children.reduce((c, node) => {
-            if (node instanceof ContainerNode)
-                children.push(node);
-        }, 0);
-        return children;
-    }
-    
-    hasAllLeafChildren()
-    {
-        return this.children.reduce((count, node) => {
-            return (node instanceof LeafNode) ? count + 1 : count;
-        }, 0) === FractalLayoutController.MAX_CHILDREN_PER_NODE;
-    }
-
-    findRandomContainerChildIndex()
-    {
-        const containerChildIndexes = this.containerChildIndices;
-        return containerChildIndexes[Stage.randomInt(0, containerChildIndexes.length - 1)];
-    }
-    
-    get containerChildIndices()
-    {
-        const containerChildIndexes = [];
-        
-        for (let i = 0; i < this.children.length; ++i) {
-            if (this.children[i] instanceof ContainerNode)
-                containerChildIndexes.push(i);
-        }
-        
-        return containerChildIndexes;
-    }
-
-    #findRandomEmptyChildIndex()
-    {
-        const emptyChildIndexes = [];
-        
-        for (let i = 0; i < this.children.length; ++i) {
-            if (this.children[i] === undefined)
-                emptyChildIndexes.push(i);
-        }
-        
-        if (emptyChildIndexes.length === 0)
-            return -1;
-        
-        return emptyChildIndexes[Stage.randomInt(0, emptyChildIndexes.length - 1)];
-    }
-
-    findRandomLeafChildIndex()
-    {
-        const leafChildIndexes = [];
-        
-        for (let i = 0; i < this.children.length; ++i) {
-            if (this.children[i] instanceof LeafNode)
-                leafChildIndexes.push(i);
-        }
-        
-        if (leafChildIndexes.length === 0)
-            return -1;
-        
-        return leafChildIndexes[Stage.randomInt(0, leafChildIndexes.length - 1)];
-    }    
-}
-
-
-class LeafNode extends TreeNode {
+class LeafNode {
     static NUM_LEAF_TYPES = 4;
-    constructor(parentNode)
+    constructor()
     {
-        super(parentNode);
         this.element = document.createElement('div');
         this.element.className = 'leaf';
         this.element.classList.add(`type-${Stage.randomInt(1, LeafNode.NUM_LEAF_TYPES)}`);
@@ -225,17 +65,17 @@ class LayoutController {
 
 class FractalLayoutController extends LayoutController {
     static MAX_CHILDREN_PER_NODE = 4;
+    static SLOTS_PER_QUADRANT = 7;
+    static SLOTS_PER_LAYER = FractalLayoutController.MAX_CHILDREN_PER_NODE * FractalLayoutController.SLOTS_PER_QUADRANT;
 
     constructor(container, stageSize)
     {
         super(container, stageSize);
         this._container = container;
         this._stageSize = stageSize;
-        this._rootNode = new ContainerNode(null, 0);
-        this._rootNode.setGridPositionForIndex(0);
-
-        // Keep track of leaf nodes at each depth level. The lists aren't sorted.
-        this.leafNodes = new Array();
+        this.leafNodes = [];
+        // Reuse LeafNode instances by index so complexity C renders the same scene on every ramp.
+        this._leafPool = [];
     }
     
     arrangeItems(countDelta)
@@ -249,7 +89,7 @@ class FractalLayoutController extends LayoutController {
     #addNodes(count)
     {
         for (let i = 0; i < count; ++i)
-            this.#insertLeafNode(new LeafNode());
+            this.#insertLeafNode();
     }
     
     #removeNodes(count)
@@ -258,29 +98,50 @@ class FractalLayoutController extends LayoutController {
             this.#removeLeafNode();
     }
     
-    #ensureLeafSetForDepth(depth)
+    #slotForLeafIndex(index)
     {
-        while (this.leafNodes.length <= depth)
-            this.leafNodes.push(new RandomAccessSet());
+        const layer = Math.floor(index / FractalLayoutController.SLOTS_PER_LAYER);
+        const slotInLayer = index % FractalLayoutController.SLOTS_PER_LAYER;
+        const quadrant = slotInLayer % FractalLayoutController.MAX_CHILDREN_PER_NODE;
+        const stepInQuadrant = (Math.floor(slotInLayer / FractalLayoutController.MAX_CHILDREN_PER_NODE) + quadrant) % FractalLayoutController.SLOTS_PER_QUADRANT;
+
+        const qx = (quadrant % 2) * 0.5;
+        const qy = Math.floor(quadrant / 2) * 0.5;
+        const splitSubQuadrant = (quadrant + layer) % FractalLayoutController.MAX_CHILDREN_PER_NODE;
+
+        // Interleave three depth-2 (25cqw x 25cqh) slots and four depth-3 (12.5cqw x 12.5cqh) slots per quadrant.
+        if (stepInQuadrant === 0 || stepInQuadrant === 2 || stepInQuadrant === 4) {
+            const subOffset = (stepInQuadrant / 2) + 1;
+            const subQuadrant = (splitSubQuadrant + subOffset) % FractalLayoutController.MAX_CHILDREN_PER_NODE;
+            return {
+                depth: 2,
+                cqFraction: 0.25,
+                position: new Point(
+                    qx + (subQuadrant % 2) * 0.25,
+                    qy + Math.floor(subQuadrant / 2) * 0.25
+                ),
+            };
+        }
+
+        const leafSubIndex = stepInQuadrant === 6 ? 3 : (stepInQuadrant - 1) / 2;
+        const subX = qx + (splitSubQuadrant % 2) * 0.25;
+        const subY = qy + Math.floor(splitSubQuadrant / 2) * 0.25;
+        return {
+            depth: 3,
+            cqFraction: 0.125,
+            position: new Point(
+                subX + (leafSubIndex % 2) * 0.125,
+                subY + Math.floor(leafSubIndex / 2) * 0.125
+            ),
+        };
     }
-    
-    #positionLeaf(leafNode)
+
+    #positionLeaf(leafNode, index)
     {
-        const sizeFraction = (depth) => { return 1 / Math.pow(2, depth) };
-        
-        const depth = leafNode.parentNode.depth + 1
-        const cqFraction = sizeFraction(depth);
+        const { depth, cqFraction, position } = this.#slotForLeafIndex(index);
         const pixelGap = 2;
         leafNode.element.style.width = `calc(${100 * cqFraction}cqw - ${pixelGap}px)`;
         leafNode.element.style.height = `calc(${100 * cqFraction}cqh - ${pixelGap}px)`;
-        
-        let position = new Point(leafNode.position.x * cqFraction, leafNode.position.y * cqFraction);
-        let currNode = leafNode.parentNode;
-        while (currNode) {
-            const fraction = sizeFraction(currNode.depth);
-            position = new Point(position.x + currNode.position.x * fraction, position.y + currNode.position.y * fraction);
-            currNode = currNode.parentNode;
-        }
 
         leafNode.element.style.left = `${100 * position.x}cqw`;
         leafNode.element.style.top = `${100 * position.y}cqw`;
@@ -289,125 +150,26 @@ class FractalLayoutController extends LayoutController {
         leafNode.element.style.setProperty("--random", Stage.randomInt(0, 100));
     }
 
-    #leafWillBeRemoved(leafNode)
+    #insertLeafNode()
     {
-        const depth = leafNode.parentNode.depth;
-        this.#ensureLeafSetForDepth(depth);
-        this.leafNodes[depth].delete(leafNode);
-        leafNode.element.remove();
-    }
-
-    #leafWasAdded(leafNode)
-    {
-        const depth = leafNode.parentNode.depth;
-        this.#ensureLeafSetForDepth(depth);
-        this.leafNodes[depth].add(leafNode);
-        this.#positionLeaf(leafNode);
+        const index = this.leafNodes.length;
+        let leafNode = this._leafPool[index];
+        if (!leafNode) {
+            leafNode = new LeafNode();
+            this._leafPool[index] = leafNode;
+            this.#positionLeaf(leafNode, index);
+        }
+        this.leafNodes.push(leafNode);
         this._container.appendChild(leafNode.element);
-    }
-    
-    #insertLeafNode(leafNode)
-    {
-        // First try to find the lowest hole in the tree.
-        let container = this.#containerWithHole(this._rootNode);
-        if (container) {
-            container.addChildInRandomEmptySlot(leafNode);
-            this.#leafWasAdded(leafNode);
-            return;
-        }
-
-        const oldLeaf = this.#findRandomRootmostLeaf(this._rootNode);
-        if (oldLeaf) {
-            const parent = oldLeaf.parentNode;
-            const index = parent.children.indexOf(oldLeaf);
-
-            if (!(oldLeaf instanceof LeafNode))
-                throw new TypeError('Old leaf node should be a LeafNode');
-            
-            const newContainer = new ContainerNode(parent, parent.depth + 1);
-            parent.setChildAtIndex(index, newContainer);
-
-            this.#leafWillBeRemoved(oldLeaf);
-            newContainer.addChildInRandomEmptySlot(oldLeaf);
-            this.#leafWasAdded(oldLeaf);
-
-            newContainer.addChildInRandomEmptySlot(leafNode);
-            this.#leafWasAdded(leafNode);
-            return;
-        }
-
-        throw new TypeError('Failed to find insertion point for leaf node');
-    }
-
-    #deepestLeafNodeSet()
-    {
-        for (let i = this.leafNodes.length - 1; i >= 0; --i) {
-            if (this.leafNodes[i].size > 0)
-                return this.leafNodes[i];
-        }
-        return null;
-    }
-
-    #shallowestLeafNodeSet()
-    {
-        for (let leafSet of this.leafNodes) {
-            if (leafSet.size > 0)
-                return leafSet;
-        }
-
-        return null;
     }
 
     #removeLeafNode()
     {
-        const targetSet = this.#deepestLeafNodeSet();
-        if (!targetSet)
+        const leafToRemove = this.leafNodes.pop();
+        if (!leafToRemove)
             return;
 
-        const leafToRemove = targetSet.random();
-        const container = leafToRemove.parentNode;
-        this.#leafWillBeRemoved(leafToRemove);
-        leafToRemove.parentNode.removeChildNode(leafToRemove);
-        
-        this.#removeEmptyContainers(container);
-    }
-    
-    #removeEmptyContainers(containerNode)
-    {
-        while (containerNode.childCount === 0) {
-            const nextContainer = containerNode.parentNode;
-            if (!nextContainer)
-                break;
-            
-            nextContainer.removeChildNode(containerNode);
-            containerNode = nextContainer;
-        }
-    }
-
-    #findRandomRootmostLeaf(currNode)
-    {
-        const targetSet = this.#shallowestLeafNodeSet();
-        if (!targetSet)
-            return null;
-        
-        return targetSet.random();
-    }
-
-    #containerWithHole(currNode)
-    {
-        if (currNode.childCount < FractalLayoutController.MAX_CHILDREN_PER_NODE)
-            return currNode;
-
-        // Make this breadth first
-        for (let child of currNode.children) {
-            if (!(child instanceof ContainerNode))
-                continue;
-
-            const found = this.#containerWithHole(child);
-            if (found)
-                return found;
-        }
-        return null;
+        leafToRemove.element.remove();
     }
 }
 
