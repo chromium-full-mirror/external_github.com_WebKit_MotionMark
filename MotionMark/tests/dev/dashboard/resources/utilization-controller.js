@@ -46,15 +46,11 @@ class UtilizationController extends ChartController {
     
     #generateData(complexity)
     {
-        const divisor = Math.max(Math.floor(complexity / 10), 1);
-
-        // This means our work is not quite proportional to complexity.
-        const dataLength = divisor * Math.ceil(complexity / divisor);
-
-        // console.log(`utilization complexity ${complexity} divisor ${divisor} dataLength ${dataLength}`);
+        const numProcesses = 10;
+        const dataLength = complexity;
 
         this.data = Array.from({ length: dataLength }, (element, i) => {
-            return { date: `${Math.floor(i / divisor)}`, process: `process ${i % divisor}`, usage: this.generator() };
+            return { date: `${Math.floor(i / numProcesses)}`, process: `process ${i % numProcesses}`, usage: this.generator() };
         });
     }
 
@@ -75,7 +71,7 @@ class UtilizationController extends ChartController {
         // Determine the series that need to be stacked.
         this.series = d3.stack()
             .keys(d3.union(this.data.map(d => d.process))) // distinct series keys, in input order
-            .value(([, D], key) => { const value = D.get(key); return value.usage }) // get value for each series key and stack
+            .value(([, D], key) => D.get(key)?.usage ?? 0) // get value for each series key and stack
           (d3.index(this.data, d => d.date, d => d.process)); // group by stack then series key
 
         // Compute the height from the number of stacks.
@@ -114,7 +110,7 @@ class UtilizationController extends ChartController {
             .attr("fill", d => color(d.key))
             .attr("class", "rect-group")
           .selectAll("rect")
-          .data(D => D.map(d => (d.key = D.key, d)))
+          .data(D => D.filter(d => d.data[1].has(D.key)).map(d => (d.key = D.key, d)))
           .join("rect")
             .attr("x", d => this.xScale(d[0]))
             .attr("y", d => this.yScale(d.data[0]))
@@ -147,14 +143,14 @@ class UtilizationController extends ChartController {
 
         this.series = d3.stack()
           .keys(d3.union(this.data.map(d => d.process))) // distinct series keys, in input order
-          .value(([, D], key) => D.get(key)?.usage) // get value for each series key and stack
+          .value(([, D], key) => D.get(key)?.usage ?? 0) // get value for each series key and stack
         (d3.index(this.data, d => d.date, d => d.process)); // group by stack then series key
 
         d3.select(this.containerElement).selectAll(".rect-group")
           .data(this.series)
           .join("g")
           .selectAll("rect")
-          .data(D => D.map(d => (d.key = D.key, d)))
+          .data(D => D.filter(d => d.data[1].has(D.key)).map(d => (d.key = D.key, d)))
           .join("rect")
             .attr("x", d => this.xScale(d[0]))
             .attr("y", d => this.yScale(d.data[0]))
