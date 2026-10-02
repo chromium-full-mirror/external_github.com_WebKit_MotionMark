@@ -71,12 +71,9 @@ class DomainsController extends ChartController {
         const leafNodes = new Set();
         
         const insertNode = (node, path) => {
-            if (path.length === 0)
-                return;
-
             const nodeIndex = path.shift();
             
-            if (nodeIndex >= node.children.length) {
+            if (path.length === 0 || nodeIndex >= node.children.length) {
                 const newNode = {
                     name: randomDomainComponent(),
                     value: this.valueGenerator(),
@@ -161,7 +158,7 @@ class DomainsController extends ChartController {
             .attr("font-size", 10)
             .attr("font-family", "sans-serif")
           .selectAll("text")
-          .data(root.descendants().filter(d => d.depth && (d.y0 + d.y1) / 2 * (d.x1 - d.x0) > 10))
+          .data(root.descendants().filter(d => d.depth))
           .join("text")
             .attr("transform", function(d) {
               const x = (d.x0 + d.x1) / 2 * 180 / Math.PI;
@@ -178,7 +175,7 @@ class DomainsController extends ChartController {
     animate(timestamp)
     {
         // Mutate some leaf nodes
-        const numLeafMutations = Math.floor(this.leafNodes.length / 20);
+        const numLeafMutations = Math.ceil(this.leafNodes.length / 20);
         const generator = d3.randomInt.source(Pseudo.random)(this.leafNodes.length);
         for (let i = 0; i < numLeafMutations; ++i) {
             const targetNode = this.leafNodes[generator()];

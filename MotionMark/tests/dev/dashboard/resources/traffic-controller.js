@@ -48,8 +48,8 @@ class TrafficController extends ChartController {
 
         this.#generateData(complexity);
 
-        this.#buildChart(this.firstChartContainer);
-        this.#buildChart(this.secondChartContainer);
+        this.#buildChart(this.firstChartContainer, this.firstData);
+        this.#buildChart(this.secondChartContainer, this.secondData);
     }
     
     #generateData(complexity)
@@ -62,13 +62,17 @@ class TrafficController extends ChartController {
             return `${alphabet[generator()]}${alphabet[generator()]}${alphabet[generator()]}`;
         }
 
-        const dataLength = complexity / 2; // Because there are two charts.
-        this.data = Array.from({ length: dataLength }, (element, i) => {
+        const firstLength = Math.ceil(complexity / 2);
+        const secondLength = Math.floor(complexity / 2);
+        this.firstData = Array.from({ length: firstLength }, () => {
+            return { name: randomDomainComponent(), value: this.generator() };
+        });
+        this.secondData = Array.from({ length: secondLength }, () => {
             return { name: randomDomainComponent(), value: this.generator() };
         });
     }
 
-    #buildChart(container)
+    #buildChart(container, data)
     {
         container.firstChild?.remove();
 
@@ -94,7 +98,7 @@ class TrafficController extends ChartController {
             .attr("viewBox", [-width / 2, -height / 2, width, height])
             .attr("style", "max-width: 100%; height: auto;");
 
-        const path = svg.datum(this.data).selectAll("path")
+        const path = svg.datum(data).selectAll("path")
             .data(this.pie)
           .join("path")
             .attr("fill", (d, i) => color(d.data.name))
@@ -108,15 +112,17 @@ class TrafficController extends ChartController {
             .attr("font-size", 12)
             .attr("text-anchor", "middle")
           .selectAll()
-          .data(this.pie(this.data))
+          .data(this.pie(data))
           .join("text")
             .attr("transform", d => `translate(${this.arc.centroid(d)})`)
             .attr("class", "text-label")
             .call(text => text.append("tspan")
+                .attr("class", "name-tspan")
                 .attr("y", "-0.4em")
                 .attr("font-weight", "bold")
                 .text(d => d.data.name))
-            .call(text => text.filter(d => (d.endAngle - d.startAngle) > 0.25).append("tspan") // FIXME: Filtering changes complexity
+            .call(text => text.append("tspan")
+                .attr("class", "value-tspan")
                 .attr("x", 0)
                 .attr("y", "0.7em")
                 .attr("fill-opacity", 0.7)
@@ -128,24 +134,27 @@ class TrafficController extends ChartController {
     animate(timestamp)
     {
         const generator = d3.randomNormal.source(Pseudo.random)(0, 2);
-        for (const datum of this.data) {
+        for (const datum of this.firstData)
             datum.value = Math.max(datum.value + generator(), 0);
-        }
+        for (const datum of this.secondData)
+            datum.value = Math.max(datum.value + generator(), 0);
         
-        const updateChart = (container) => {
+        const updateChart = (container, data) => {
+            const pieData = this.pie(data);
             d3.select(container).selectAll(".pie-wedge")
-              .data(this.pie(this.data))
+              .data(pieData)
               .join("path")
-                .attr("d", this.arc)
+                .attr("d", this.arc);
 
             d3.select(container).selectAll(".text-label")
-              .data(this.pie(this.data))
+              .data(pieData)
               .join("text")
-                .attr("transform", d => `translate(${this.arc.centroid(d)})`);
-                // FIXME: update the tspans based on angle.
+                .attr("transform", d => `translate(${this.arc.centroid(d)})`)
+                .select(".value-tspan")
+                .text(d => d.data.value.toLocaleString("en-US"));
         };
         
-        updateChart(this.firstChartContainer);
-        updateChart(this.secondChartContainer);
+        updateChart(this.firstChartContainer, this.firstData);
+        updateChart(this.secondChartContainer, this.secondData);
     }
 }
